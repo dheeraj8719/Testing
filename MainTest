@@ -1,0 +1,104 @@
+package JunitTest;
+
+
+import org.junit.After;
+import org.junit.Test;
+
+import com.mycompany.bank.Main;
+
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
+
+import static org.junit.Assert.*;
+
+public class MainTest {
+
+    private final PrintStream originalOut = System.out;
+    private final InputStream originalIn = System.in;
+
+    @After
+    public void restoreIO() {
+        System.setOut(originalOut);
+        System.setIn(originalIn);
+    }
+
+    private String runWithInput(String input) throws Exception {
+        ByteArrayInputStream in = new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8));
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        PrintStream out = new PrintStream(baos, true, "UTF-8");
+
+        System.setIn(in);
+        System.setOut(out);
+
+        Main.main(new String[0]);
+
+        out.flush();
+        return baos.toString("UTF-8");
+    }
+
+    @Test
+    public void e2e_panPlusAadhaar_path_shouldSucceedAndPrintReceipt() throws Exception {
+        String userInput = String.join("\n",
+                "John Doe",                 // Full Name
+                "1990-01-01",              // DOB
+                "john@example.com",        // Email
+                "9876543210",              // Phone
+                "ABCDE1234F",              // PAN (valid)
+                "123412341234",            // Aadhaar (valid)
+                "221B Baker Street",       // Street
+                "Mumbai",                  // City
+                "MH",                      // State
+                "400001",                  // Pincode
+                "savings",                 // Account Type
+                "5000",                    // Deposit
+                "Some notes",              // Notes (optional)
+                "no",                      // Docs selection (skip, since PAN + Aadhaar ok)
+                "yes"                      // Consent
+        ) + "\n";
+
+        String out = runWithInput(userInput);
+
+        assertTrue(out.contains("KYC satisfied using PAN + Aadhaar"));
+        assertTrue(out.contains("========== Acknowledgement Receipt =========="));
+        assertTrue(out.contains("Applicant : John Doe"));
+        assertTrue(out.contains("Email     : john@example.com"));
+        assertTrue(out.contains("Acc Type  : Savings"));
+        assertTrue(out.contains("Deposit   : "));
+
+        assertTrue(Pattern.compile("Account NO: \\d{12}").matcher(out).find());
+        assertTrue(Pattern.compile("Acknowledgement ID : RCT-\\d{6}-\\d{6}-[0-9A-Z]{4}").matcher(out).find());
+    }
+
+    @Test
+    public void e2e_docsSelection_path_requiresTwoDocs_thenSucceeds() throws Exception {
+        String userInput = String.join("\n",
+                "Mary-Jane A.",            // Full Name
+                "1995-05-05",              // DOB
+                "mary@example.com",        // Email
+                "9876501234",              // Phone
+                "",                        // PAN (blank)
+                "",                        // Aadhaar (blank)
+                "42 Galaxy Way",           // Street
+                "Pune",                    // City
+                "MH",                      // State
+                "411001",                  // Pincode
+                "current",                 // Account Type
+                "2500",                    // Deposit
+                "",                        // Notes
+                "3",                       // First selection: only PASSPORT -> fail
+                "3,5",                     // Second: PASSPORT + DL -> pass
+                "yes"                      // Consent
+        ) + "\n";
+
+        String out = runWithInput(userInput);
+
+        assertTrue(out.contains("KYC required: Select ANY TWO documents"));
+        assertTrue(out.contains("❌ KYC rule not satisfied"));
+        assertTrue(out.contains("Acc Type  : Current"));
+        assertTrue(out.contains("PAN       : —"));
+        assertTrue(out.contains("Aadhaar   : —"));
+        assertTrue(out.contains("KYC       : [Passport, Driving License]") ||
+                   out.contains("KYC       : [Driving License, Passport]"));
+    }
+}
