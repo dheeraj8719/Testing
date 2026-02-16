@@ -1,0 +1,21 @@
+package com.mycompany.bank;
+
+import java.util.EnumSet;
+
+public class AccountApplication {
+    public String fullName;
+    public String dob;           // yyyy-MM-dd
+    public String email;
+    public String phone;         // 10 digits
+    public String pan;           // optional
+    public String aadhaar;       // optional
+    public String street;
+    public String city;
+    public String state;
+    public String pincode;       // 6 digits
+    public String accountType;   // savings/current
+    public int deposit;          // >= 1000
+    public String notes;         // optional
+    public boolean consent;      // required
+    public EnumSet<KycDocument> kycDocs = EnumSet.noneOf(KycDocument.class);
+}
