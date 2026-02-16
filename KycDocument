@@ -1,0 +1,20 @@
+package com.mycompany.bank;
+
+public enum KycDocument {
+    AADHAAR("Aadhaar"),
+    PAN("PAN"),
+    PASSPORT("Passport"),
+    VOTER("Voter ID"),
+    DL("Driving License"),
+    MNREGA("MNREGA Card");
+
+    private final String label;
+
+    KycDocument(String label) {
+        this.label = label;
+    }
+
+    public String label() {
+        return label;
+    }
+}
