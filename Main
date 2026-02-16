@@ -1,0 +1,188 @@
+package com.mycompany.bank;
+import java.time.LocalDateTime;
+import java.util.EnumSet;
+import java.util.Scanner;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+
+public class Main {
+    public static void main(String[] args) {
+        long seed = System.currentTimeMillis();
+        LocalDateTime now = LocalDateTime.now();
+        AccountOpeningService service = new AccountOpeningService(seed, now);
+        Scanner sc = new Scanner(System.in);
+        AccountApplication app = new AccountApplication();
+        System.out.println("=====Account Opening: Enter Details=====");
+        app.fullName = promptUntilValid(
+                sc,
+                "Full Name*: ",
+                service::validFullName,
+                " Invalid name. Use 3–33 letters only (no numbers)."
+        );
+        app.dob = promptUntilValid(
+                sc,
+                "DOB* (yyyy-MM-dd): ",
+                service::isAdult,
+                " Invalid DOB. Must be 18+ and in yyyy-MM-dd format."
+        );
+        app.email = promptUntilValid(
+                sc,
+                "Email*: ",
+                service::validEmail,
+                " Invalid email format."
+        );
+        app.phone = promptUntilValid(
+                sc,
+                "Phone* (10 digits): ",
+                service::validPhone,
+                " Phone must be exactly 10 digits."
+        );
+        app.pan = promptUntilValid(
+                sc,
+                "PAN (optional): ",
+                service::validPAN,
+                " PAN format invalid. Example: ABCDE1234F"
+        );
+        app.aadhaar = promptUntilValid(
+                sc,
+                "Aadhaar (optional): ",
+                service::validAadhaar,
+                " Aadhaar must be exactly 12 digits."
+        );
+        app.street = promptUntilValid(sc, "Street*: ", notBlank(), " Street is required.");
+        app.city   = promptUntilValid(sc, "City*: ", notBlank(), " City is required.");
+        app.state  = promptUntilValid(sc, "State*: ", notBlank(), " State is required.");
+
+        app.pincode = promptUntilValid(
+                sc,
+                "Pincode* (6 digits): ",
+                service::validPincode,
+                " Pincode must be exactly 6 digits."
+        );
+
+        app.accountType = promptUntilValid(
+                sc,
+                "Account Type* (savings/current): ",
+                service::validAccountType,
+                " Account type must be 'savings' or 'current'."
+        ).trim().toLowerCase();
+
+        app.deposit = promptIntUntilValid(
+                sc,
+                "Opening Deposit* (min 1000): ",
+                1000
+        );
+
+        System.out.print("Additional Notes (optional): ");
+        app.notes = sc.nextLine();
+        // ---- KYC selection: Only enforce if PAN + Aadhaar not provided ----
+        while (true) {
+            if (service.kycValid(app)) {
+                // PAN + Aadhaar already satisfied => KYC docs optional
+                System.out.println(" KYC satisfied using PAN + Aadhaar. (Document selection optional)");
+                System.out.print("Do you still want to select documents? (yes/no): ");
+                String ans = sc.nextLine().trim().toLowerCase();
+                if (ans.equals("yes") || ans.equals("y")) {
+                    app.kycDocs = askKycDocs(sc);
+                }
+                break;
+            } else {
+                System.out.println("KYC required: Select ANY TWO documents (PAN/Aadhaar not both provided).");
+                app.kycDocs = askKycDocs(sc);
+
+                if (service.kycValid(app)) break;
+                System.out.println(" KYC rule not satisfied. Select at least 2 documents.");
+            }
+        }
+
+        String consentStr = promptUntilValid(
+                sc,
+                "Do you accept consent? (yes/no)*: ",
+                s -> {
+                    if (s == null) return false;
+                    String x = s.trim().toLowerCase();
+                    return x.equals("yes") || x.equals("y") || x.equals("no") || x.equals("n");
+                },
+                " Please type yes or no."
+        );
+
+        app.consent = consentStr.trim().toLowerCase().startsWith("y");
+
+        try {
+            AccountOpeningService.Receipt receipt = service.submit(app);
+            printReceipt(service, receipt);
+        } catch (Exception e) {
+            System.out.println("\n Submission Failed: " + e.getMessage());
+        } finally {
+            sc.close();
+        }
+    }
+    // ---------- Helpers ----------
+    private static Predicate<String> notBlank() {
+        return s -> s != null && !s.trim().isEmpty();
+    }
+    private static String promptUntilValid(Scanner sc, String label, Predicate<String> validator, String errorMsg) {
+        while (true) {
+            System.out.print(label);
+            String input = sc.nextLine();
+            if (validator.test(input)) return input;
+            System.out.println(errorMsg);
+        }
+    }
+    private static int promptIntUntilValid(Scanner sc, String label, int min) {
+        while (true) {
+            System.out.print(label);
+            String s = sc.nextLine();
+            try {
+                int val = Integer.parseInt(s.trim());
+                if (val >= min) return val;
+                System.out.println(" Amount must be at least " + min + ".");
+            } catch (Exception e) {
+                System.out.println(" Enter a valid number.");
+            }
+        }
+    }
+    private static EnumSet<KycDocument> askKycDocs(Scanner sc) {
+        System.out.println("Select KYC documents (type numbers separated by comma):");
+        System.out.println("1.Aadhaar  2.PAN  3.Passport  4.Voter ID  5.Driving License  6.MNREGA");
+        System.out.print("Your selection: ");
+        String kycInput = sc.nextLine();
+        return parseKycSelection(kycInput);
+    }
+    private static EnumSet<KycDocument> parseKycSelection(String input) {
+        EnumSet<KycDocument> set = EnumSet.noneOf(KycDocument.class);
+        if (input == null || input.trim().isEmpty()) return set;
+
+        String[] parts = input.split(",");
+        for (String p : parts) {
+            String x = p.trim();
+            if (x.equals("1")) set.add(KycDocument.AADHAAR);
+            else if (x.equals("2")) set.add(KycDocument.PAN);
+            else if (x.equals("3")) set.add(KycDocument.PASSPORT);
+            else if (x.equals("4")) set.add(KycDocument.VOTER);
+            else if (x.equals("5")) set.add(KycDocument.DL);
+            else if (x.equals("6")) set.add(KycDocument.MNREGA);
+        }
+        return set;
+    }
+    private static void printReceipt(AccountOpeningService service, AccountOpeningService.Receipt r) {
+        System.out.println("\n========== Acknowledgement Receipt ==========");
+        System.out.println("Created At : " + r.createdAt);
+        System.out.println("Acknowledgement ID : " + r.receiptId);
+        System.out.println("Status    : " + r.status);
+        System.out.println("Applicant : " + r.app.fullName);
+        System.out.println("DOB       : " + r.app.dob);
+        System.out.println("Email     : " + r.app.email);
+        System.out.println("Phone     : " + r.app.phone);
+        System.out.println("Address   : " + r.app.street + ", " + r.app.city + ", " + r.app.state + " — " + r.app.pincode);
+        System.out.println("Acc Type  : " + service.accountTypeLabel(r.app.accountType));
+        System.out.println("Deposit   : " + service.currencyINR(r.app.deposit));
+        System.out.println("KYC       : " + r.app.kycDocs.stream()
+                .map(KycDocument::label)
+                .collect(Collectors.toList()));
+        System.out.println("PAN       : " + (r.app.pan == null || r.app.pan.trim().isEmpty() ? "—" : r.app.pan.trim().toUpperCase()));
+        System.out.println("Aadhaar   : " + service.maskAadhaar(r.app.aadhaar));
+        System.out.println("Account NO: " + r.accountNo);
+        System.out.println("========================================\n");
+    }
+}
