@@ -1,0 +1,16 @@
+package JunitTest;
+import org.junit.Test;
+import com.mycompany.bank.KycDocument;
+import static org.junit.Assert.assertEquals;
+public class KycDocumentTest {
+
+    @Test
+    public void labels_matchExpectedHumanReadable() {
+        assertEquals("Aadhaar", KycDocument.AADHAAR.label());
+        assertEquals("PAN", KycDocument.PAN.label());
+        assertEquals("Passport", KycDocument.PASSPORT.label());
+        assertEquals("Voter ID", KycDocument.VOTER.label());
+        assertEquals("Driving License", KycDocument.DL.label());
+        assertEquals("MNREGA Card", KycDocument.MNREGA.label());
+    }
+}
