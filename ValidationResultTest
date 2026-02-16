@@ -1,0 +1,36 @@
+package JunitTest;
+
+
+import org.junit.Test;
+
+import com.mycompany.bank.ValidationResult;
+
+import java.util.List;
+
+import static org.junit.Assert.*;
+
+public class ValidationResultTest {
+
+    @Test
+    public void collectsErrors_returnsFirstAndAll() {
+        ValidationResult vr = new ValidationResult();
+        assertTrue(vr.isValid());
+
+        vr.addError("E1");
+        assertFalse(vr.isValid());
+        assertEquals("E1", vr.firstErrorOrEmpty());
+
+        vr.addError("E2");
+        List<String> all = vr.allErrors();
+        assertEquals(2, all.size());
+        assertEquals("E1", all.get(0));
+        assertEquals("E2", all.get(1));
+    }
+
+    @Test
+    public void firstErrorOrEmpty_returnsEmptyWhenNoErrors() {
+        ValidationResult vr = new ValidationResult();
+        assertEquals("", vr.firstErrorOrEmpty());
+    }
+}
+
