@@ -1,0 +1,252 @@
+package com.mycompany.bank;
+
+import java.text.NumberFormat;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.Period;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+import java.util.Random;
+import java.util.regex.Pattern;
+
+public class AccountOpeningService {
+
+    // Patterns (Java-8 safe)
+    private static final Pattern PAN_PATTERN = Pattern.compile("^[A-Z]{5}[0-9]{4}[A-Z]$");
+    private static final Pattern AADHAAR_PATTERN = Pattern.compile("^\\d{12}$");
+    private static final Pattern PHONE_PATTERN = Pattern.compile("^\\d{10}$");
+    private static final Pattern PIN_PATTERN = Pattern.compile("^\\d{6}$");
+    private static final Pattern EMAIL_BASIC = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+
+    // Allows letters, space, dot, hyphen, apostrophe. Blocks digits.
+    // Must start with a letter and be length 3..33
+    private static final Pattern NAME_PATTERN = Pattern.compile("^[A-Za-z][A-Za-z .'-]{1,31}[A-Za-z.]$");
+
+    private final Random rng;
+    private final LocalDateTime fixedNow;
+
+    public AccountOpeningService(long seed, LocalDateTime fixedNow) {
+        this.rng = new Random(seed);
+        this.fixedNow = fixedNow;
+    }
+
+    // Receipt object
+    public static class Receipt {
+        public final String receiptId;
+        public final String accountNo; // 12 digits
+        public final String status;
+        public final LocalDateTime createdAt;
+        public final AccountApplication app;
+
+        public Receipt(String receiptId, String accountNo, String status, LocalDateTime createdAt, AccountApplication app) {
+            this.receiptId = receiptId;
+            this.accountNo = accountNo;
+            this.status = status;
+            this.createdAt = createdAt;
+            this.app = app;
+        }
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
+    }
+
+    // ---------- Field validation methods (used by Main) ----------
+    public boolean validFullName(String name) {
+        if (isBlank(name)) return false;
+        String n = name.trim();
+        if (n.length() < 3 || n.length() > 33) return false;
+        return NAME_PATTERN.matcher(n).matches();
+    }
+
+    public boolean validEmail(String email) {
+        if (isBlank(email)) return false;
+        return EMAIL_BASIC.matcher(email.trim()).matches();
+    }
+
+    public boolean validPhone(String phone) {
+        if (isBlank(phone)) return false;
+        return PHONE_PATTERN.matcher(phone.trim()).matches();
+    }
+
+    public boolean validPincode(String pincode) {
+        if (isBlank(pincode)) return false;
+        return PIN_PATTERN.matcher(pincode.trim()).matches();
+    }
+
+    public boolean validPAN(String pan) {
+        if (isBlank(pan)) return true; // optional
+        String p = pan.trim().toUpperCase();
+        return PAN_PATTERN.matcher(p).matches();
+    }
+
+    public boolean validAadhaar(String a) {
+        if (isBlank(a)) return true; // optional
+        return AADHAAR_PATTERN.matcher(a.trim()).matches();
+    }
+
+    public boolean validAccountType(String type) {
+        if (isBlank(type)) return false;
+        String t = type.trim().toLowerCase();
+        return t.equals("savings") || t.equals("current");
+    }
+
+    public boolean validDeposit(int deposit) {
+        return deposit >= 1000;
+    }
+
+    public boolean isAdult(String dobStr) {
+        if (isBlank(dobStr)) return false;
+        try {
+            LocalDate dob = LocalDate.parse(dobStr.trim());
+            int years = Period.between(dob, fixedNow.toLocalDate()).getYears();
+            return years >= 18;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // KYC rule: PAN + Aadhaar OR any two docs checked
+    public boolean kycValid(AccountApplication app) {
+        String pan = (app.pan == null) ? "" : app.pan.trim();
+        String aadhaar = (app.aadhaar == null) ? "" : app.aadhaar.trim();
+
+        if (!pan.isEmpty() && !aadhaar.isEmpty() && validPAN(pan) && validAadhaar(aadhaar)) {
+            return true;
+        }
+        return app.kycDocs != null && app.kycDocs.size() >= 2;
+    }
+
+    // ---------- Full validation (safety net) ----------
+    public ValidationResult validate(AccountApplication app) {
+        ValidationResult vr = new ValidationResult();
+
+        // Required fields
+        if (isBlank(app.fullName) || isBlank(app.dob) || isBlank(app.email) || isBlank(app.phone) ||
+            isBlank(app.street) || isBlank(app.city) || isBlank(app.state) || isBlank(app.pincode) ||
+            isBlank(app.accountType)) {
+            vr.addError("Please complete the required fields marked with *.");
+            return vr;
+        }
+
+        if (!validFullName(app.fullName)) {
+            vr.addError("Full Name must be 3 to 33 characters and contain only letters/spaces.");
+            return vr;
+        }
+
+        if (!isAdult(app.dob)) {
+            vr.addError("You must be at least 18 years old. DOB format: yyyy-MM-dd.");
+            return vr;
+        }
+
+        if (!validEmail(app.email)) {
+            vr.addError("Email format is invalid.");
+            return vr;
+        }
+
+        if (!validPhone(app.phone)) {
+            vr.addError("Phone must be 10 digits (numbers only).");
+            return vr;
+        }
+
+        if (!validPincode(app.pincode)) {
+            vr.addError("Pincode must be 6 digits.");
+            return vr;
+        }
+
+        if (!validAccountType(app.accountType)) {
+            vr.addError("Account type must be 'savings' or 'current'.");
+            return vr;
+        }
+
+        if (!validPAN(app.pan)) {
+            vr.addError("PAN format is invalid. Expected: ABCDE1234F.");
+            return vr;
+        }
+
+        if (!validAadhaar(app.aadhaar)) {
+            vr.addError("Aadhaar must be 12 digits.");
+            return vr;
+        }
+
+        if (!kycValid(app)) {
+            vr.addError("KYC rule not satisfied: provide PAN + Aadhaar or any two documents.");
+            return vr;
+        }
+
+        if (!app.consent) {
+            vr.addError("Please accept the consent to proceed.");
+            return vr;
+        }
+
+        if (!validDeposit(app.deposit)) {
+            vr.addError("Opening deposit must be minimum ₹1000.");
+            return vr;
+        }
+
+        return vr;
+    }
+
+    // ---------- Receipt ID + Account Number ----------
+    public String generateAccountNumber() {
+        StringBuilder base = new StringBuilder();
+        int sum = 0;
+
+        for (int i = 0; i < 10; i++) {
+            int digit = rng.nextInt(10);
+            base.append(digit);
+            sum += digit;
+        }
+
+        int chk = sum % 97;
+        return base.toString() + String.format("%02d", chk);
+    }
+
+    public String generateReceiptId() {
+        String part = fixedNow.format(DateTimeFormatter.ofPattern("yyMMdd-HHmmss"));
+        String chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+        StringBuilder rand = new StringBuilder();
+        for (int i = 0; i < 4; i++) {
+            rand.append(chars.charAt(rng.nextInt(chars.length())));
+        }
+
+        return "RCT-" + part + "-" + rand.toString();
+    }
+
+    public String currencyINR(int amount) {
+        NumberFormat nf = NumberFormat.getCurrencyInstance(new Locale("en", "IN"));
+        nf.setMaximumFractionDigits(0);
+        return nf.format(amount);
+    }
+
+    public String maskAadhaar(String a) {
+        if (isBlank(a)) return "—";
+        String s = a.trim();
+        if (s.length() != 12) return "—";
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 8; i++) sb.append('•');
+        sb.append(s.substring(8));
+        return sb.toString();
+    }
+
+    public String accountTypeLabel(String type) {
+        if (type == null) return "—";
+        switch (type.trim().toLowerCase()) {
+            case "savings": return "Savings";
+            case "current": return "Current";
+            default: return "—";
+        }
+    }
+
+    public Receipt submit(AccountApplication app) {
+        ValidationResult vr = validate(app);
+        if (!vr.isValid()) {
+            throw new IllegalArgumentException(vr.firstErrorOrEmpty());
+        }
+        String receiptId = generateReceiptId();
+        String accountNo = generateAccountNumber();
+        return new Receipt(receiptId, accountNo, "Submitted", fixedNow, app);
+    }
+}
