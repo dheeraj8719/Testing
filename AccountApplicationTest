@@ -1,0 +1,34 @@
+package JunitTest;
+import org.junit.Test;
+import com.mycompany.bank.AccountApplication;
+import com.mycompany.bank.KycDocument;
+import java.util.EnumSet;
+import static org.junit.Assert.*;
+
+public class AccountApplicationTest {
+    @Test
+    public void defaults_shouldHaveEmptyKycDocsAndNullables() {
+        AccountApplication app = new AccountApplication();
+        assertNotNull("kycDocs should be initialized", app.kycDocs);
+        assertEquals(EnumSet.noneOf(KycDocument.class), app.kycDocs);
+
+        assertNull(app.fullName);
+        assertNull(app.pan);
+        assertNull(app.aadhaar);
+        assertNull(app.notes);
+        assertFalse("consent should default to false", app.consent);
+    }
+
+    @Test
+    public void kycDocs_canAddAndRetainDistinctValues() {
+        AccountApplication app = new AccountApplication();
+        app.kycDocs.add(KycDocument.PASSPORT);
+        app.kycDocs.add(KycDocument.DL);
+        app.kycDocs.add(KycDocument.DL); // duplicate
+
+        assertEquals(2, app.kycDocs.size());
+        assertTrue(app.kycDocs.contains(KycDocument.PASSPORT));
+        assertTrue(app.kycDocs.contains(KycDocument.DL));
+    }
+}
+
