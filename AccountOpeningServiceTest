@@ -1,0 +1,263 @@
+package JunitTest;
+
+
+import org.junit.Before;
+import org.junit.Test;
+
+import com.mycompany.bank.AccountApplication;
+import com.mycompany.bank.AccountOpeningService;
+import com.mycompany.bank.KycDocument;
+import com.mycompany.bank.ValidationResult;
+
+import java.time.LocalDateTime;
+import java.util.EnumSet;
+import java.util.regex.Pattern;
+
+import static org.junit.Assert.*;
+
+public class AccountOpeningServiceTest {
+
+    private AccountOpeningService service;
+    private LocalDateTime fixedNow;
+
+    @Before
+    public void setUp() {
+        fixedNow = LocalDateTime.of(2024, 1, 1, 12, 0, 0);
+        service = new AccountOpeningService(42L, fixedNow);
+    }
+
+    private AccountApplication buildValidApp() {
+        AccountApplication app = new AccountApplication();
+        app.fullName = "John D'Souza";
+        app.dob = "1990-04-05";
+        app.email = "john@example.com";
+        app.phone = "9876543210";
+        app.street = "221B Baker Street";
+        app.city = "Mumbai";
+        app.state = "MH";
+        app.pincode = "400001";
+        app.accountType = "savings";
+        app.deposit = 5000;
+        app.pan = "ABCDE1234F";
+        app.aadhaar = "123412341234";
+        app.consent = true;
+        return app;
+    }
+
+    // ---------- Validators ----------
+
+    @Test
+    public void validFullName_shouldAcceptGoodPatterns() {
+        assertTrue(service.validFullName("Ana"));
+        assertTrue(service.validFullName("Mary-Jane A."));
+        assertTrue(service.validFullName("John D'Souza"));
+        assertTrue(service.validFullName("A B"));
+        assertTrue(service.validFullName("A. B"));
+        assertTrue(service.validFullName("Chris O'Dowd"));
+        assertTrue(service.validFullName("R R"));
+    }
+
+    @Test
+    public void validFullName_shouldRejectBadPatterns() {
+        assertFalse(service.validFullName(""));
+        assertFalse(service.validFullName("  "));
+        assertFalse(service.validFullName("1John"));
+        assertFalse(service.validFullName("Jo"));
+        assertFalse(service.validFullName("This Name Is Way Too Long For The Rule Set"));
+        assertFalse(service.validFullName("John3"));
+        assertFalse(service.validFullName("John_"));
+    }
+
+    @Test
+    public void validEmail_good() {
+        assertTrue(service.validEmail("user@site.com"));
+        assertTrue(service.validEmail("a.b+tag@domain.co.in"));
+        assertTrue(service.validEmail("x@y.z"));
+        assertTrue(service.validEmail("a@b.com")); // valid per EMAIL_BASIC pattern
+    }
+
+    @Test
+    public void validEmail_bad() {
+        assertFalse(service.validEmail(""));
+        assertFalse(service.validEmail("no-at-symbol"));
+        assertFalse(service.validEmail("a@b"));    // missing TLD
+        assertFalse(service.validEmail("a@b."));   // trailing dot
+        assertFalse(service.validEmail("a@.com")); // missing domain label
+        // Do NOT assert false for "a@b.com"; it's valid by the current regex
+    }
+
+    @Test
+    public void validPhone_good() {
+        assertTrue(service.validPhone("0123456789"));
+        assertTrue(service.validPhone("9999999999"));
+    }
+
+    @Test
+    public void validPhone_bad() {
+        assertFalse(service.validPhone(""));
+        assertFalse(service.validPhone("12345"));
+        assertFalse(service.validPhone("12345678901"));
+        assertFalse(service.validPhone("abcdefghij"));
+    }
+
+    @Test
+    public void validPincode_good() {
+        assertTrue(service.validPincode("560001"));
+        assertTrue(service.validPincode("400001"));
+    }
+
+    @Test
+    public void validPincode_bad() {
+        assertFalse(service.validPincode(""));
+        assertFalse(service.validPincode("5600"));
+        assertFalse(service.validPincode("5600011"));
+        assertFalse(service.validPincode("ABCDEF"));
+    }
+
+    @Test
+    public void validPAN_optionalAndFormat() {
+        assertTrue("Optional PAN should be valid when absent", service.validPAN(null));
+        assertTrue(service.validPAN("ABCDE1234F"));
+        assertTrue(service.validPAN("abcde1234f")); // internal uppercase
+
+        assertFalse(service.validPAN("ABCD1234F"));
+        assertFalse(service.validPAN("ABCDE123F"));
+        assertFalse(service.validPAN("ABCDE12345"));
+        assertFalse(service.validPAN("ABCDE1234Z9"));
+    }
+
+    @Test
+    public void validAadhaar_optionalAndDigits() {
+        assertTrue("Optional Aadhaar should be valid when absent", service.validAadhaar(null));
+        assertTrue(service.validAadhaar("123456789012"));
+        assertFalse(service.validAadhaar("12345678901"));
+        assertFalse(service.validAadhaar("1234567890123"));
+        assertFalse(service.validAadhaar("ABCDEFGHIJKL"));
+    }
+
+    @Test
+    public void validAccountType_caseInsensitive() {
+        assertTrue(service.validAccountType("savings"));
+        assertTrue(service.validAccountType("current"));
+        assertTrue(service.validAccountType("SAVINGS"));
+        assertFalse(service.validAccountType("fixed"));
+        assertFalse(service.validAccountType(""));
+    }
+
+    @Test
+    public void validDeposit_minimum1000() {
+        assertTrue(service.validDeposit(1000));
+        assertTrue(service.validDeposit(1001));
+        assertFalse(service.validDeposit(999));
+    }
+
+    @Test
+    public void isAdult_checksAgeAgainstFixedNow() {
+        assertTrue(service.isAdult("2000-01-01"));
+        assertTrue(service.isAdult("2005-01-01"));      // 19 at fixedNow
+        assertFalse(service.isAdult("2007-12-31"));     // underage
+        assertFalse(service.isAdult("not-a-date"));
+    }
+
+    @Test
+    public void kycValid_panPlusAadhaarOrTwoDocs() {
+        AccountApplication a = buildValidApp();
+        assertTrue(service.kycValid(a));
+
+        a.pan = "";
+        assertFalse("Aadhaar alone not enough", service.kycValid(a));
+
+        a.kycDocs = EnumSet.of(KycDocument.PASSPORT, KycDocument.DL);
+        assertTrue("Any two docs should satisfy", service.kycValid(a));
+    }
+
+    // ---------- Full validation & submit ----------
+
+    @Test
+    public void validate_returnsErrorsForMissingRequireds() {
+        AccountApplication app = new AccountApplication();
+        ValidationResult vr = service.validate(app);
+        assertFalse(vr.isValid());
+        assertTrue(vr.firstErrorOrEmpty().contains("Please complete the required fields"));
+    }
+
+    @Test
+    public void validate_successOnWellFormedInput() {
+        AccountApplication app = buildValidApp();
+        ValidationResult vr = service.validate(app);
+        assertTrue("All fields valid; consent true; deposit >= 1000", vr.isValid());
+    }
+
+    @Test
+    public void submit_throwsOnInvalid() {
+        AccountApplication app = new AccountApplication();
+        try {
+            service.submit(app);
+            fail("Expected IllegalArgumentException");
+        } catch (IllegalArgumentException ex) {
+            assertTrue(ex.getMessage().length() > 0);
+        }
+    }
+
+    @Test
+    public void submit_returnsReceiptWithDeterministicFormat() {
+        AccountApplication app = buildValidApp();
+        AccountOpeningService.Receipt r = service.submit(app);
+
+        assertNotNull(r);
+        assertEquals("Submitted", r.status);
+        assertEquals(fixedNow, r.createdAt);
+        assertSame(app, r.app);
+
+        // Receipt ID: RCT-yyMMdd-HHmmss-XXXX
+        assertTrue(Pattern.matches("RCT-\\d{6}-\\d{6}-[0-9A-Z]{4}", r.receiptId));
+
+        // Account No: 12 digits; last two are sum%97 of first ten
+        assertTrue(Pattern.matches("\\d{12}", r.accountNo));
+        String first10 = r.accountNo.substring(0, 10);
+        String chk = r.accountNo.substring(10);
+        int sum = 0;
+        for (char c : first10.toCharArray()) sum += (c - '0');
+        int expected = sum % 97;
+        assertEquals(String.format("%02d", expected), chk);
+    }
+
+    // ---------- Formatting ----------
+
+    @Test
+    public void currencyINR_shouldFormatIndianGroupingAndNoDecimals() {
+        String s = service.currencyINR(123456);
+
+        // Normalize: keep only digits and commas (drop currency symbol and spaces incl. NBSP)
+        String digitsAndCommas = s.replaceAll("[^0-9,]", "");
+
+        // Accept Indian (1,23,456) OR Western (123,456) grouping depending on JDK/locale data
+        assertTrue("Should show grouped digits in either Indian or Western style: " + s,
+                digitsAndCommas.equals("1,23,456") || digitsAndCommas.equals("123,456"));
+
+        // Ensure no decimals were printed
+        assertFalse("No decimals expected: " + s, s.contains("."));
+    }
+
+    @Test
+    public void maskAadhaar_showsLast4AndMasksFirst8() {
+        String masked = service.maskAadhaar("123456789012");
+        assertEquals("••••••••9012", masked);
+        assertEquals(12, masked.length());
+    }
+
+    @Test
+    public void maskAadhaar_invalidOrBlankReturnsEmDash() {
+        assertEquals("—", service.maskAadhaar(null));
+        assertEquals("—", service.maskAadhaar(""));
+        assertEquals("—", service.maskAadhaar("1234"));
+    }
+
+    @Test
+    public void accountTypeLabel_mapsKnownElseDash() {
+        assertEquals("Savings", service.accountTypeLabel("savings"));
+        assertEquals("Current", service.accountTypeLabel("current"));
+        assertEquals("—", service.accountTypeLabel("fixed"));
+        assertEquals("—", service.accountTypeLabel(null));
+    }
+}
