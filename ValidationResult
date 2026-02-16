@@ -1,0 +1,24 @@
+package com.mycompany.bank;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class ValidationResult {
+    private final List<String> errors = new ArrayList<String>();
+
+    public void addError(String msg) {
+        errors.add(msg);
+    }
+
+    public boolean isValid() {
+        return errors.isEmpty();
+    }
+
+    public String firstErrorOrEmpty() {
+        return errors.isEmpty() ? "" : errors.get(0);
+    }
+
+    public List<String> allErrors() {
+        return errors;
+    }
+}
